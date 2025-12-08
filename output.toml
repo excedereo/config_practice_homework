@@ -1,0 +1,40 @@
+[game]
+levels = [1, 2, 3, 4]
+speeds = [1.5, 2, 3]
+
+[game.hp]
+base = 100
+boss = 150
+easy = 80
+min = 80
+
+[game.video]
+scale = 1000
+fullscreen = 1
+
+[game.video.screen]
+width = 1920
+height = 1080
+
+[server]
+ports = [8000, 8001, 8100]
+listen_order = [8000, 8001, 8100]
+
+[server.timeouts]
+connect = 5
+read = 15
+write = 20
+
+[simulation]
+gravity = 9.81
+mass_range = [0.9, 1, 1.1]
+sorted_mass_range = [0.9, 1, 1.1]
+
+[[simulation.checkpoints]]
+t = 0
+
+[[simulation.checkpoints]]
+t = 1
+
+[[simulation.checkpoints]]
+t = 5

@@ -5,16 +5,15 @@ import click
 
 NUMBER_RE = re.compile(r"-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?")
 
-# Глобальное состояние "парсера"
 tokens = []   # список токенов: (type, value, line, col)
 pos = 0       # текущая позиция в tokens
 consts = {}   # константы: имя -> значение
-config = {}   # верхнеуровневые параметры: имя -> значение
+config = {}   # параметры верхнего уровня: имя -> значение
 
-# ЛЕКСЕР
+# Лексер
 
 def lex(text: str):
-    # Разбивает текст на токены и кладёт их в глобальный список tokens
+    """Разбивает входной текст на токены."""
     global tokens
     tokens = []
 
@@ -26,13 +25,13 @@ def lex(text: str):
     while i < n:
         ch = text[i]
 
-        # пробелы
+        # пробельные символы
         if ch in " \t\r":
             i += 1
             col += 1
             continue
 
-        # перенос строки
+        # перевод строки
         if ch == "\n":
             i += 1
             line += 1
@@ -46,7 +45,7 @@ def lex(text: str):
                 col += 1
             continue
 
-        # двухсимвольные токены
+        # двухсимвольные операторы
         if ch == ":" and i + 1 < n and text[i + 1] == "=":
             tokens.append(("ASSIGN", ":=", line, col))
             i += 2
@@ -80,7 +79,7 @@ def lex(text: str):
             col += 1
             continue
 
-        # '-' — либо начало числа, либо оператор
+        # '-'  либо оператор, либо начало числа
         if ch == "-":
             m = NUMBER_RE.match(text, i)
             if m:
@@ -94,7 +93,7 @@ def lex(text: str):
                 col += 1
             continue
 
-        # числа, начиная с цифры или точки
+        # число (с цифры или точки)
         if ch.isdigit() or ch == ".":
             m = NUMBER_RE.match(text, i)
             if not m:
@@ -105,7 +104,7 @@ def lex(text: str):
             col += len(s)
             continue
 
-        # идентификаторы / ключевые слова (begin/end)
+        # идентификаторы и ключевые слова
         if ch.isalpha() or ch == "_":
             start = i
             start_col = col
@@ -119,10 +118,10 @@ def lex(text: str):
 
         raise Exception(f"Неожиданный символ '{ch}' в строке {line}, столбец {col}")
 
-    # конец файла
+    # маркер конца ввода
     tokens.append(("EOF", "", line, col))
 
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ПАРСЕРА
+# Вспомогательные функции парсера
 
 def peek():
     return tokens[pos]
@@ -147,7 +146,7 @@ def consume(ttype, msg):
 def isnum(v):
     return isinstance(v, (int, float))
 
-# ПАРСЕР ФАЙЛА
+# Парсинг файла
 
 def parse_file():
     global pos, config
@@ -155,7 +154,7 @@ def parse_file():
     config = {}
 
     while tokens[pos][0] != "EOF":
-        # пропускаем лишние ; между конструкциями
+        # лишние ; между конструкциями допускаются
         while match("SEMICOLON"):
             pass
 
@@ -166,7 +165,7 @@ def parse_file():
         if tokens[pos][0] == "IDENT" and tokens[pos + 1][0] == "ASSIGN":
             parse_assignment()
         else:
-            # константа: value -> IDENT;
+            # объявление константы: value -> IDENT;
             parse_const()
 
     return config
@@ -176,7 +175,7 @@ def parse_assignment():
     name = consume("IDENT", "Ожидался идентификатор")[1]
     consume("ASSIGN", "Ожидался оператор ':='")
     v = parse_value()
-    match("SEMICOLON")  # ; в конце делаем необязательным
+    match("SEMICOLON")  # завершающий ; необязателен
     config[name] = v
 
 
@@ -192,30 +191,26 @@ def parse_const():
     consts[name] = v
     match("SEMICOLON")
 
-# ПАРСИНГ ЗНАЧЕНИЙ
+# Парсинг значений
 
 def parse_value():
-    """Парсит значение: число, массив, словарь, @{...} или константу."""
+    """Значение: число, массив, словарь, @{...} или ссылка на константу."""
     ttype, val, line, col = peek()
 
-    # число
     if ttype == "NUMBER":
         consume("NUMBER", "Ожидалось число")
         return float(val) if any(c in val for c in ".eE") else int(val)
 
-    # массив
     if ttype == "LBRACKET":
         return parse_array()
 
-    # словарь
     if ttype == "BEGIN":
         return parse_dict()
 
-    # константное выражение
     if ttype == "AT":
         return parse_constexpr()
 
-    # использование константы как значения
+    # использование константы
     if ttype == "IDENT":
         consume("IDENT", "Ожидался идентификатор")
         if val not in consts:
@@ -301,7 +296,7 @@ def parse_expr():
 
     return parse_value()
 
-# ГЕНЕРАЦИЯ TOML
+# Генерация TOML
 
 def render_scalar(v):
     if isinstance(v, bool):
@@ -356,11 +351,9 @@ def emit_table(lines, fullname, d):
         else:
             scalars.append((k, v))
 
-    # обычные поля
     for k, v in scalars:
         lines.append(f"{k} = {render_scalar_or_array(v)}")
 
-    # массивы таблиц
     for k, arr in arrays_of_tables:
         for el in arr:
             if lines and lines[-1] != "":
@@ -369,14 +362,13 @@ def emit_table(lines, fullname, d):
             for kk, vv in el.items():
                 lines.append(f"{kk} = {render_scalar_or_array(vv)}")
 
-    # вложенные словари как подтаблицы
     for k, v in nested:
         emit_table(lines, fullname + "." + k, v)
 
 def generate_toml(cfg: dict) -> str:
     lines = []
 
-    # корневые скаляры/массивы
+    # корневые значения (не таблицы)
     for k, v in cfg.items():
         if not isinstance(v, dict):
             lines.append(f"{k} = {render_scalar_or_array(v)}")
@@ -389,21 +381,21 @@ def generate_toml(cfg: dict) -> str:
     return "\n".join(lines) + "\n"
 
 def convert(text: str) -> str:
-    """Основная функция преобразования: текст учебного языка -> TOML."""
+    """Преобразование входного формата в TOML."""
     consts.clear()
     lex(text)
     cfg = parse_file()
     return generate_toml(cfg)
 
-# CLI через click
+# CLI
 
 @click.command()
 @click.option(
     "-i", "--input", "input_path", required=True, type=click.Path(exists=True, dir_okay=False),
-    help="Входной файл с учебным конфигурационным языком",)
+    help="Входной файл с конфигурацией",)
 @click.option(
     "-o", "--output", "output_path", required=True, type=click.Path(dir_okay=False),
-    help="Файл для вывода TOML",)
+    help="Файл вывода TOML",)
 def cli(input_path, output_path):
     try:
         with open(input_path, "r", encoding="utf-8") as f:
